@@ -5,14 +5,17 @@ import json
 import math
 
 # --- 1. CONFIGURAÇÃO DA IA ---
+# Tente usar gemini-1.5-flash. Se der erro, o log dirá se a chave é o problema.
 try:
-    # Busca a chave configurada nos Secrets do Streamlit
-    minha_chave = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=minha_chave)
-    # Modelo oficial estável para evitar o erro InvalidArgument
+    if "GEMINI_API_KEY" not in st.secrets:
+        st.error("🔑 Chave GEMINI_API_KEY não encontrada nos Secrets do Streamlit!")
+        st.stop()
+        
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    # Nome oficial para evitar o erro 404
     model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
-    st.error("🔑 Erro de Configuração: Chave API não encontrada ou inválida nos Secrets.")
+    st.error(f"Erro ao inicializar IA: {e}")
     st.stop()
 
 # --- 2. BANCO DE DADOS (PHB, XGtE, TCoE, MPMM) ---
@@ -44,22 +47,22 @@ CLASSES_DND = {
     "Monge": {"dado": 8, "pdf": "DnD 5e - Ficha - Monge - Editável.pdf", 
               "subs": ["Mão Aberta", "Sombras", "Kensei", "Misericórdia", "Eu Astral"]},
     "Paladino": {"dado": 10, "pdf": "DnD 5e - Ficha - Paladino - Editável.pdf", 
-                 "subs": ["Devoção", "Vingança", "Conquista", "Redenção", "Glória", "Vigilância"]},
+                 "subs": ["Devoção", "Vingança", "Anciões", "Conquista", "Redenção", "Glória", "Vigilância"]},
     "Patrulheiro": {"dado": 10, "pdf": "DnD 5e - Ficha - Patrulheiro - Editável.pdf", 
                     "subs": ["Caçador", "Mestre das Bestas", "Perseguidor Sombrio", "Andarilho do Horizonte"]}
 }
 
-TENDENCIAS = ["Leal e Bom", "Neutro", "Caótico e Bom", "Neutro e Bom", "Leal e Neutro", "Caótico e Neutro", "Leal e Mau", "Neutro e Mau", "Caótico e Mau"]
+TENDENCIAS = ["Leal e Bom", "Neutro", "Caótico e Bom", "Leal e Neutro", "Caótico e Neutro", "Leal e Mau", "Neutro e Mau", "Caótico e Mau"]
 ANTECEDENTES = ["Acólito", "Charlatão", "Criminoso", "Entretenimento", "Herói do Povo", "Nobre", "Forasteiro", "Sábio", "Soldado", "Órfão"]
 MATRIZ_PADRAO = [15, 14, 13, 12, 10, 8]
 
-# --- 3. FUNÇÕES MATEMÁTICAS ---
+# --- 3. FUNÇÕES ---
 def calc_mod(v): return math.floor((v - 10) / 2)
 def calc_prof(n): return math.ceil(1 + (n / 4))
 
 # --- 4. INTERFACE ---
 st.set_page_config(page_title="D&D Auto-Ficha Pro", layout="wide")
-st.title("🎲 Gerador de Fichas D&D 5e (LDJ + Xanathar + Tasha)")
+st.title("🎲 Gerador de Fichas D&D 5e")
 
 col1, col2 = st.columns(2)
 
@@ -77,7 +80,7 @@ with col1:
 
 with col2:
     st.header("2. Atributos (Matriz Padrão)")
-    st.info("Escolha cada valor uma única vez: 15, 14, 13, 12, 10, 8")
+    st.info("Escolha cada valor uma única vez (15, 14, 13, 12, 10, 8)")
     ca1, ca2 = st.columns(2)
     f_b = ca1.selectbox("Força", MATRIZ_PADRAO, index=0)
     d_b = ca2.selectbox("Destreza", MATRIZ_PADRAO, index=1)
@@ -87,28 +90,30 @@ with col2:
     ca_b = ca2.selectbox("Carisma", MATRIZ_PADRAO, index=5)
 
     validado = len(set([f_b, d_b, c_b, i_b, s_b, ca_b])) == 6
-    if not validado: st.error("⚠️ Erro: Não repita os números nos atributos!")
+    if not validado: st.error("⚠️ Não repita os números nos atributos!")
 
 # --- 5. GERAÇÃO ---
 if st.button("🔥 Gerar e Baixar PDF") and validado:
-    with st.spinner("IA processando as regras oficiais..."):
-        prompt = f"""
-        Gere dados JSON para uma ficha D&D 5e: {raca_sel} {classe_sel} ({sub_sel}), nível {nivel_sel}.
-        {f'Nome: {nome_input}' if nome_input else 'Gere um nome épico.'}
-        Retorne APENAS o JSON com chaves: "nome", "historia".
-        """
+    with st.spinner("Processando..."):
+        prompt = f"Gere APENAS um JSON para D&D 5e: Raça {raca_sel}, Classe {classe_sel} ({sub_sel}). Nome: {nome_input if nome_input else 'Temático'}. JSON keys: 'nome', 'historia'."
         
         try:
             response = model.generate_content(prompt)
-            extra = json.loads(response.text.strip().replace('```json', '').replace('```', ''))
+            # Limpeza do JSON
+            texto = response.text.strip().replace('```json', '').replace('```', '')
+            extra = json.loads(texto)
             
             prof = calc_prof(nivel_sel)
             mod_con = calc_mod(c_b)
             hp = CLASSES_DND[classe_sel]["dado"] + mod_con + ((nivel_sel-1) * (CLASSES_DND[classe_sel]["dado"] // 2 + 1 + mod_con))
 
             dados_pdf = {
-                "Front_Character Name": extra["nome"], "Front_Race": raca_sel, "Front_Level": str(nivel_sel),
-                "Front_Alignment": tend_sel, "Front_Background": ant_sel, "Front_Archetype": sub_sel,
+                "Front_Character Name": extra.get("nome", "Herói"),
+                "Front_Race": raca_sel,
+                "Front_Level": str(nivel_sel),
+                "Front_Alignment": tend_sel,
+                "Front_Background": ant_sel,
+                "Front_Archetype": sub_sel,
                 "Front_Proficiency": f"+{prof}",
                 "Front_Str Score": str(f_b), "Front_Str Mod": f"{calc_mod(f_b):+}",
                 "Front_Dex Score": str(d_b), "Front_Dex Mod": f"{calc_mod(d_b):+}",
@@ -119,19 +124,19 @@ if st.button("🔥 Gerar e Baixar PDF") and validado:
                 "Front_Max HP": str(hp), "Front_AC": str(10 + calc_mod(d_b)), "Front_Initiative": f"{calc_mod(d_b):+}"
             }
 
-            # Localiza o PDF na pasta modelos
+            # Preenchimento do PDF
             reader = PdfReader(f"modelos/{CLASSES_DND[classe_sel]['pdf']}")
             writer = PdfWriter()
             writer.add_page(reader.pages[0])
             writer.update_page_form_field_values(writer.pages[0], dados_pdf)
             
-            nome_arq = f"Ficha_{extra['nome'].replace(' ', '_')}.pdf"
-            with open(nome_arq, "wb") as f: writer.write(f)
+            saida = "Ficha_DND.pdf"
+            with open(saida, "wb") as f:
+                writer.write(f)
             
-            st.success(f"✅ {extra['nome']} gerado com sucesso!")
-            with open(nome_arq, "rb") as f:
-                st.download_button("📥 Baixar Ficha PDF", f, file_name=nome_arq)
+            st.success("Ficha Pronta!")
+            with open(saida, "rb") as f:
+                st.download_button("📥 Baixar PDF", f, file_name=f"Ficha_{extra.get('nome','Heroi')}.pdf")
 
         except Exception as e:
-            st.error(f"Erro inesperado: {e}")
-            st.info("Verifique se a GEMINI_API_KEY está correta nos Secrets.")
+            st.error(f"Ocorreu um problema: {e}")
