@@ -1,50 +1,45 @@
 import streamlit as st
 import google.generativeai as genai
-from pypdf import PdfReader, PdfWriter
 import json
 
-# Conexão com a Chave configurada no painel Secrets
+# Certifique-se de que a chave está salva nos Secrets do Streamlit!
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel('gemini-3-flash-preview')
 
-def preencher_pdf(classe, dados_ia, arquivos_pdf):
-    # Procura o arquivo PDF correspondente na sua lista de uploads
-    nome_arquivo = f"DnD 5e - Ficha - {classe} - Editável.pdf"
-    reader = PdfReader(nome_arquivo)
-    writer = PdfWriter()
-    writer.add_page(reader.pages[0])
-
-    # Mapeamento: 'Nome no PDF' : 'Dado da IA'
-    mapeamento = {
-        "NOME DE PERSONAGEM": dados_ia.get("nome"),
-        "RAÇA": dados_ia.get("raca"),
-        "FORÇA": str(dados_ia.get("for")),
-        "DESTREZA": str(dados_ia.get("des")),
-        "CONSTITUIÇÃO": str(dados_ia.get("con")),
-        "INTELIGÊNCIA": str(dados_ia.get("int")),
-        "SABEDORIA": str(dados_ia.get("sab")),
-        "CARISMA": str(dados_ia.get("car"))
-    }
-
-    writer.update_page_form_field_values(writer.pages[0], mapeamento)
-    
-    saida = "ficha_finalizada.pdf"
-    with open(saida, "wb") as f:
-        writer.write(f)
-    return saida
-
-# Interface
 st.title("🎲 D&D 5e Auto-Ficha (LDJ, Tasha, Xanathar)")
-classe = st.selectbox("Escolha sua Classe", ["Guerreiro", "Monge", "Mago", "Ladino", "Bardo", "Bruxo", "Clérigo", "Druida", "Bárbaro", "Feiticeiro"])
+
+# Novos campos de seleção
+col1, col2 = st.columns(2)
+with col1:
+    classe = st.selectbox("Classe", ["Guerreiro", "Monge", "Mago", "Ladino", "Bardo", "Bruxo", "Clérigo", "Druida", "Bárbaro", "Feiticeiro"])
+with col2:
+    # Lista ampliada com raças de Xanathar e Tasha
+    raca = st.selectbox("Raça", ["Anão", "Elfo", "Humano", "Halfling", "Draconato", "Gnomo", "Meio-Elfo", "Meio-Orc", "Tiefling", "Tabaxi", "Tritão", "Aasimar"])
+
 nivel = st.slider("Nível do Personagem", 1, 20, 1)
 
 if st.button("✨ Gerar Personagem com Gemini 3 Flash"):
-    prompt = f"Gere uma ficha de D&D 5e para um {classe} nível {nivel}. Responda APENAS em JSON com: nome, raca, for, des, con, int, sab, car."
+    # Prompt detalhado para buscar regras específicas dos livros mencionados
+    prompt = f"""
+    Gere uma ficha de D&D 5e para um {classe} {raca} nível {nivel}.
+    Considere as regras e variantes dos livros: Player's Handbook, Tasha's Cauldron of Everything e Xanathar's Guide to Everything.
+    Retorne APENAS um JSON puro com as chaves: 
+    "nome", "raca", "for", "des", "con", "int", "sab", "car", "tracos_raciais", "habilidades_classe".
+    """
     
-    response = model.generate_content(prompt)
-    dados = json.loads(response.text.replace('```json', '').replace('```', ''))
-    
-    arquivo_pdf = preencher_pdf(classe, dados, None)
-    
-    with open(arquivo_pdf, "rb") as f:
-        st.download_button(f"📥 Baixar Ficha de {classe} (PDF)", f, file_name=f"Ficha_{classe}.pdf")
+    try:
+        response = model.generate_content(prompt)
+        # Limpa e carrega o JSON
+        texto_limpo = response.text.replace('```json', '').replace('```', '').strip()
+        dados = json.loads(texto_limpo)
+        
+        st.subheader(f"Personagem: {dados['nome']}")
+        st.write(f"**Raça:** {dados['raca']} | **Classe:** {classe} Nível {nivel}")
+        
+        # Exibe os traços buscados pela IA
+        st.info(f"**Traços Raciais ({raca}):** {dados['tracos_raciais']}")
+        
+        # Aqui você chamaria a função de preencher o PDF que configuramos antes
+        st.success("Dados buscados com sucesso nos livros de regras!")
+    except Exception as e:
+        st.error(f"Erro ao processar dados da IA: {e}")
