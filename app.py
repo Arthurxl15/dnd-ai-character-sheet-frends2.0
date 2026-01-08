@@ -3,60 +3,48 @@ import google.generativeai as genai
 from pypdf import PdfReader, PdfWriter
 import json
 
-# Configuração da API (Pegue o valor nos Secrets do Streamlit)
+# Conexão com a Chave configurada no painel Secrets
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel('gemini-3-flash-preview')
 
-def gerar_ficha_ia(classe, nivel):
-    prompt = f"""
-    Gere uma ficha de D&D 5e para um {classe} nível {nivel}. 
-    Use livros: PHB, Tasha e Xanathar.
-    Retorne APENAS um JSON puro com as chaves: 
-    "nome", "raca", "for", "des", "con", "int", "sab", "car", "habilidades".
-    """
-    response = model.generate_content(prompt)
-    # Limpa a resposta para garantir que seja um JSON válido
-    dados = json.loads(response.text.replace('```json', '').replace('```', ''))
-    return dados
-
-def preencher_pdf(classe, dados_ia):
-    # Seleciona o arquivo certo com base na classe
-    caminho_modelo = f"modelos/DnD 5e - Ficha - {classe} - Editável.pdf"
-    reader = PdfReader(caminho_modelo)
+def preencher_pdf(classe, dados_ia, arquivos_pdf):
+    # Procura o arquivo PDF correspondente na sua lista de uploads
+    nome_arquivo = f"DnD 5e - Ficha - {classe} - Editável.pdf"
+    reader = PdfReader(nome_arquivo)
     writer = PdfWriter()
-    
-    page = reader.pages[0]
-    writer.add_page(page)
+    writer.add_page(reader.pages[0])
 
-    # Mapeamento dos campos do seu PDF
-    # Nota: Você precisará conferir os nomes exatos dos campos no PDF
-    campos = {
-        "NOME DO PERSONAGEM": dados_ia["nome"],
-        "RAÇA": dados_ia["raca"],
-        "FORÇA": str(dados_ia["for"]),
-        "DESTREZA": str(dados_ia["des"]),
-        "CONSTITUIÇÃO": str(dados_ia["con"]),
-        "INTELIGÊNCIA": str(dados_ia["int"]),
-        "SABEDORIA": str(dados_ia["sab"]),
-        "CARISMA": str(dados_ia["car"]),
+    # Mapeamento: 'Nome no PDF' : 'Dado da IA'
+    mapeamento = {
+        "NOME DE PERSONAGEM": dados_ia.get("nome"),
+        "RAÇA": dados_ia.get("raca"),
+        "FORÇA": str(dados_ia.get("for")),
+        "DESTREZA": str(dados_ia.get("des")),
+        "CONSTITUIÇÃO": str(dados_ia.get("con")),
+        "INTELIGÊNCIA": str(dados_ia.get("int")),
+        "SABEDORIA": str(dados_ia.get("sab")),
+        "CARISMA": str(dados_ia.get("car"))
     }
 
-    writer.update_page_form_field_values(writer.pages[0], campos)
+    writer.update_page_form_field_values(writer.pages[0], mapeamento)
     
-    caminho_saida = "ficha_preenchida.pdf"
-    with open(caminho_saida, "wb") as f:
+    saida = "ficha_finalizada.pdf"
+    with open(saida, "wb") as f:
         writer.write(f)
-    return caminho_saida
+    return saida
 
 # Interface
-st.title("🎲 Gerador Automático de Fichas (LDJ + Tasha + Xanathar)")
-classe = st.selectbox("Classe", ["Guerreiro", "Mago", "Ladino", "Monge", "Bardo", "Bruxo", "Clérigo", "Druida", "Bárbaro", "Feiticeiro"])
-nivel = st.slider("Nível", 1, 20, 1)
+st.title("🎲 D&D 5e Auto-Ficha (LDJ, Tasha, Xanathar)")
+classe = st.selectbox("Escolha sua Classe", ["Guerreiro", "Monge", "Mago", "Ladino", "Bardo", "Bruxo", "Clérigo", "Druida", "Bárbaro", "Feiticeiro"])
+nivel = st.slider("Nível do Personagem", 1, 20, 1)
 
-if st.button("Gerar e Preencher PDF"):
-    with st.spinner("A IA está montando seu personagem..."):
-        dados = gerar_ficha_ia(classe, nivel)
-        arquivo = preencher_pdf(classe, dados)
-        
-        with open(arquivo, "rb") as f:
-            st.download_button("📥 Baixar Ficha PDF Pronta", f, file_name=f"Ficha_{classe}.pdf")
+if st.button("✨ Gerar Personagem com Gemini 3 Flash"):
+    prompt = f"Gere uma ficha de D&D 5e para um {classe} nível {nivel}. Responda APENAS em JSON com: nome, raca, for, des, con, int, sab, car."
+    
+    response = model.generate_content(prompt)
+    dados = json.loads(response.text.replace('```json', '').replace('```', ''))
+    
+    arquivo_pdf = preencher_pdf(classe, dados, None)
+    
+    with open(arquivo_pdf, "rb") as f:
+        st.download_button(f"📥 Baixar Ficha de {classe} (PDF)", f, file_name=f"Ficha_{classe}.pdf")
