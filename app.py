@@ -4,68 +4,109 @@ from pypdf import PdfReader, PdfWriter
 import json
 import math
 
-# Configuração da IA
+# --- CONFIGURAÇÃO DA IA ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel('gemini-3-flash-preview')
 
-def calcular_mod(valor):
-    return math.floor((valor - 10) / 2)
-
-def calcular_proficiencia(nivel):
-    return math.ceil(1 + (nivel / 4))
-
-# Mapeamento de Dados de Vida (HD) conforme LDJ
-DADOS_VIDA = {
-    "Bárbaro": 12, "Guerreiro": 10, "Paladino": 10, "Patrulheiro": 10,
-    "Clérigo": 8, "Bardo": 8, "Druida": 8, "Ladino": 8, "Monge": 8, "Bruxo": 8,
-    "Mago": 6, "Feiticeiro": 6
+# --- BANCO DE DADOS DE REGRAS ---
+CLASSES_DND = {
+    "Guerreiro": {"dado": 10, "pdf": "DnD 5e - Ficha - Guerreiro - Editável.pdf", "subs": ["Campeão", "Mestre de Batalha", "Cavaleiro Arcano"]},
+    "Mago": {"dado": 6, "pdf": "DnD 5e - Ficha - Mago - Editável.pdf", "subs": ["Evocação", "Abjuração", "Ilusão", "Necromancia"]},
+    "Ladino": {"dado": 8, "pdf": "DnD 5e - Ficha - Ladino - Editável.pdf", "subs": ["Assassino", "Gatuno", "Trapaceiro Arcano"]},
+    "Bárbaro": {"dado": 12, "pdf": "DnD 5e - Ficha - Bárbaro - Editável.pdf", "subs": ["Caminho do Berserker", "Caminho do Totem"]},
+    "Bardo": {"dado": 8, "pdf": "DnD 5e - Ficha - Bardo - Editável.pdf", "subs": ["Colégio do Saber", "Colégio da Bravura"]},
+    "Clérigo": {"dado": 8, "pdf": "DnD 5e - Ficha - Clérigo - Editável.pdf", "subs": ["Domínio da Vida", "Domínio da Guerra", "Domínio da Luz"]},
+    "Paladino": {"dado": 10, "pdf": "DnD 5e - Ficha - Paladino - Editável.pdf", "subs": ["Juramento de Devoção", "Juramento de Vingança"]},
+    "Patrulheiro": {"dado": 10, "pdf": "DnD 5e - Ficha - Patrulheiro - Editável.pdf", "subs": ["Caçador", "Mestre das Bestas"]}
 }
 
+RACAS = ["Anão", "Elfo", "Humano", "Halfling", "Draconato", "Tiefling", "Gnomo", "Meio-Elfo", "Meio-Orc"]
+TENDENCIAS = ["Leal e Bom", "Neutro e Bom", "Caótico e Bom", "Leal e Neutro", "Neutro", "Caótico e Neutro", "Leal e Mau", "Neutro e Mau", "Caótico e Mau"]
+ANTECEDENTES = ["Acólito", "Charlatão", "Criminoso", "Entretenimento", "Herói do Povo", "Artesão de Guilda", "Eremita", "Nobre", "Forasteiro", "Sábio", "Marinheiro", "Soldado", "Órfão"]
+
+# --- FUNÇÕES ---
+def calc_mod(v): return math.floor((v - 10) / 2)
+def calc_prof(n): return math.ceil(1 + (n / 4))
+
 # --- INTERFACE ---
-st.title("🛡️ Gerador de Fichas Automático (Regras Oficiais)")
+st.set_page_config(page_title="Gerador D&D 5e", layout="wide")
+st.title("🛡️ Gerador de Fichas D&D 5e Oficial")
 
-with st.sidebar:
-    classe = st.selectbox("Classe", list(DADOS_VIDA.keys()))
-    nivel = st.slider("Nível", 1, 20, 1)
-    # Atributos Matriz Padrão
-    st.write("Atributos Base:")
-    forca = st.number_input("Força", 0, 30, 15)
-    des = st.number_input("Destreza", 0, 30, 14)
-    con = st.number_input("Constituição", 0, 30, 13)
-    int_ = st.number_input("Inteligência", 0, 30, 12)
-    sab = st.number_input("Sabedoria", 0, 30, 10)
-    car = st.number_input("Carisma", 0, 30, 8)
+col1, col2 = st.columns(2)
 
-if st.button("✨ Gerar PDF com Cálculos"):
-    # Cálculos Automáticos baseados no LDJ
-    mod_con = calcular_mod(con)
-    pv_max = DADOS_VIDA[classe] + mod_con + ((nivel - 1) * (DADOS_VIDA[classe] // 2 + 1 + mod_con))
-    prof = calcular_proficiencia(nivel)
-    passiva = 10 + calcular_mod(sab)
+with col1:
+    st.header("1. Personagem")
+    
+    # Seleção de Nome
+    tipo_nome = st.radio("Nome do Personagem:", ["Eu quero escrever", "IA sugere um nome"])
+    nome_final = st.text_input("Escreva o nome:") if tipo_nome == "Eu quero escrever" else ""
+    
+    raca_sel = st.selectbox("Raça", RACAS)
+    classe_sel = st.selectbox("Classe", list(CLASSES_DND.keys()))
+    subclasse_sel = st.selectbox("Subclasse (Arquétipo)", CLASSES_DND[classe_sel]["subs"])
+    
+    nivel_sel = st.slider("Nível", 1, 20, 1)
+    tendencia_sel = st.selectbox("Tendência", TENDENCIAS)
+    antecedente_sel = st.selectbox("Antecedente", ANTECEDENTES)
 
-    # Dados para preencher o PDF (usando os nomes técnicos internos da sua ficha)
-    dados_pdf = {
-        "Front_Character Name": "Herói de Teste",
-        "Front_Level": str(nivel),
-        "Front_Str Score": str(forca),
-        "Front_Str Mod": f"{calcular_mod(forca):+}",
-        "Front_Dex Score": str(des),
-        "Front_Dex Mod": f"{calcular_mod(des):+}",
-        "Front_Con Score": str(con),
-        "Front_Con Mod": f"{calcular_mod(con):+}",
-        "Front_Int Score": str(int_),
-        "Front_Int Mod": f"{calcular_mod(int_):+}",
-        "Front_Wis Score": str(sab),
-        "Front_Wis Mod": f"{calcular_mod(sab):+}",
-        "Front_Cha Score": str(car),
-        "Front_Cha Mod": f"{calcular_mod(car):+}",
-        "Front_Proficiency": f"+{prof}",
-        "Front_Max HP": str(pv_max),
-        "Front_Passive Perception": str(passiva),
-        "Front_AC": str(10 + calcular_mod(des)),
-        "Front_Initiative": f"{calcular_mod(des):+}"
-    }
+with col2:
+    st.header("2. Atributos (8-15)")
+    c1, c2 = st.columns(2)
+    f_b = c1.number_input("Força", 8, 15, 10)
+    d_b = c2.number_input("Destreza", 8, 15, 10)
+    c_b = c1.number_input("Constituição", 8, 15, 10)
+    i_b = c2.number_input("Inteligência", 8, 15, 10)
+    s_b = c1.number_input("Sabedoria", 8, 15, 10)
+    ca_b = c2.number_input("Carisma", 8, 15, 10)
 
-    # Lógica de preenchimento (pypdf)
-    # [O código de preenchimento do PDF que já usamos entra aqui]
-    st.success(f"Cálculos realizados! Vida: {pv_max}, Proficiência: +{prof}")
+if st.button("✨ Gerar Personagem e Criar PDF"):
+    with st.spinner("A IA está organizando sua ficha..."):
+        
+        # IA gera o nome se necessário e detalhes extras
+        prompt = f"Crie um personagem D&D 5e: {raca_sel} {classe_sel} ({subclasse_sel}). Tendência: {tendencia_sel}. Antecedente: {antecedente_sel}. {f'Nome: {nome_final}' if nome_final else 'Sugira um nome épico.'} Retorne APENAS um JSON com: 'nome_escolhido', 'historia_curta', 'equipamento'."
+        
+        response = model.generate_content(prompt)
+        extra = json.loads(response.text.strip().replace('```json', '').replace('```', ''))
+        
+        # Cálculos Matemáticos
+        prof = calc_prof(nivel_sel)
+        mod_con = calc_mod(c_b)
+        hp_max = CLASSES_DND[classe_sel]["dado"] + mod_con + ((nivel_sel-1) * (CLASSES_DND[classe_sel]["dado"] // 2 + 1 + mod_con))
+
+        # Mapeamento para o PDF
+        campos_pdf = {
+            "Front_Character Name": extra["nome_escolhido"],
+            "Front_Race": raca_sel,
+            "Front_Level": str(nivel_sel),
+            "Front_Alignment": tendencia_sel,
+            "Front_Background": antecedente_sel,
+            "Front_Archetype": subclasse_sel,
+            "Front_Proficiency": f"+{prof}",
+            "Front_Str Score": str(f_b), "Front_Str Mod": f"{calc_mod(f_b):+}",
+            "Front_Dex Score": str(d_b), "Front_Dex Mod": f"{calc_mod(d_b):+}",
+            "Front_Con Score": str(c_b), "Front_Con Mod": f"{calc_mod(c_b):+}",
+            "Front_Int Score": str(i_b), "Front_Int Mod": f"{calc_mod(i_b):+}",
+            "Front_Wis Score": str(s_b), "Front_Wis Mod": f"{calc_mod(s_b):+}",
+            "Front_Cha Score": str(ca_b), "Front_Cha Mod": f"{calc_mod(ca_b):+}",
+            "Front_Max HP": str(hp_max),
+            "Front_AC": str(10 + calc_mod(d_b)),
+            "Front_Initiative": f"{calc_mod(d_b):+}"
+        }
+
+        try:
+            # Carregar o modelo de PDF da pasta 'modelos'
+            reader = PdfReader(f"modelos/{CLASSES_DND[classe_sel]['pdf']}")
+            writer = PdfWriter()
+            writer.add_page(reader.pages[0])
+            writer.update_page_form_field_values(writer.pages[0], campos_pdf)
+            
+            output_file = f"Ficha_{extra['nome_escolhido']}.pdf"
+            with open(output_file, "wb") as f:
+                writer.write(f)
+            
+            st.success(f"Ficha de {extra['nome_escolhido']} gerada com sucesso!")
+            with open(output_file, "rb") as f:
+                st.download_button("📥 Baixar Ficha PDF", f, file_name=output_file)
+                
+        except Exception as e:
+            st.error(f"Erro ao acessar o PDF: {e}. Certifique-se de que os arquivos estão na pasta 'modelos'.")
